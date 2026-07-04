@@ -444,4 +444,285 @@ with tab2:
         paper_bgcolor="rgba(0,0,0,0)",
         font=dict(color="#1b5e20"),
     )
-    st.plotly
+    st.plotly_chart(fig_box, use_container_width=True)
+
+# ---------- TAB 3: ANALISIS LANJUT ----------
+with tab3:
+    st.markdown('<div class="section-title">Scatter Plot & Korelasi</div>', unsafe_allow_html=True)
+
+    if col_area is not None:
+        c1, c2 = st.columns(2)
+        with c1:
+            fig_scatter = px.scatter(
+                df_filtered.dropna(subset=[col_area, col_production]),
+                x=col_area,
+                y=col_production,
+                color=col_commodity,
+                size=col_production,
+                hover_data=[col_province],
+                title="🎯 Luas Area vs Produksi",
+                color_discrete_sequence=px.colors.sequential.Greens,
+            )
+            fig_scatter.update_layout(
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="#1b5e20"),
+            )
+            st.plotly_chart(fig_scatter, use_container_width=True)
+
+        with c2:
+            # Heatmap korelasi
+            numeric_df = df_filtered.select_dtypes(include=[np.number])
+            if len(numeric_df.columns) >= 2:
+                corr = numeric_df.corr()
+                fig_heat = px.imshow(
+                    corr,
+                    text_auto=".2f",
+                    color_continuous_scale="Greens",
+                    title="🔥 Heatmap Korelasi",
+                    aspect="auto",
+                )
+                fig_heat.update_layout(
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    font=dict(color="#1b5e20"),
+                )
+                st.plotly_chart(fig_heat, use_container_width=True)
+            else:
+                st.info("Data numerik kurang dari 2 kolom untuk heatmap.")
+    else:
+        st.info("Kolom 'Luas' tidak ditemukan. Scatter plot tidak dapat ditampilkan.")
+
+# ---------- TAB 4: TOP PROVINSI ----------
+with tab4:
+    st.markdown('<div class="section-title">🏆 Ranking Provinsi Penghasil Terbesar</div>', unsafe_allow_html=True)
+
+    top_provinces = (
+        df_filtered.groupby(col_province)[col_production]
+        .sum()
+        .reset_index()
+        .sort_values(col_production, ascending=False)
+        .head(10)
+    )
+    top_provinces["Rank"] = range(1, len(top_provinces) + 1)
+
+    fig_rank = px.bar(
+        top_provinces,
+        x=col_production,
+        y=col_province,
+        orientation="h",
+        color=col_production,
+        color_continuous_scale="Greens",
+        title="🥇 Top 10 Provinsi Penghasil",
+        text_auto=".2s",
+    )
+    fig_rank.update_layout(
+        yaxis=dict(autorange="reversed"),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#1b5e20"),
+        height=500,
+    )
+    st.plotly_chart(fig_rank, use_container_width=True)
+
+    st.dataframe(
+        top_provinces[["Rank", col_province, col_production]].style.background_gradient(
+            cmap="Greens", subset=[col_production]
+        ),
+        use_container_width=True,
+    )
+
+# ---------- TAB 5: MACHINE LEARNING ----------
+with tab5:
+    st.markdown('<div class="section-title">🤖 Prediksi dengan Machine Learning</div>', unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class="insight-box">
+            Model <b>Random Forest</b> dan <b>Linear Regression</b> digunakan untuk memprediksi
+            produksi tanaman perkebunan berdasarkan fitur numerik yang tersedia.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    try:
+        # Siapkan data untuk ML
+        ml_df = df_filtered.select_dtypes(include=[np.number]).dropna()
+        if col_production in ml_df.columns and len(ml_df) > 20:
+            X = ml_df.drop(columns=[col_production])
+            y = ml_df[col_production]
+
+            if X.shape[1] >= 1:
+                c1, c2 = st.columns(2)
+
+                with c1:
+                    st.markdown("##### 🌳 Random Forest Regressor")
+                    rf_model, rf_metrics = train_random_forest(X, y)
+                    st.metric("MAE", f"{rf_metrics['mae']:,.2f}")
+                    st.metric("RMSE", f"{rf_metrics['rmse']:,.2f}")
+                    st.metric("R² Score", f"{rf_metrics['r2']:.4f}")
+
+                    # Feature importance
+                    feat_imp = get_feature_importance(rf_model, X.columns)
+                    fig_imp = px.bar(
+                        feat_imp,
+                        x="importance",
+                        y="feature",
+                        orientation="h",
+                        title="🌳 Feature Importance (RF)",
+                        color="importance",
+                        color_continuous_scale="Greens",
+                    )
+                    fig_imp.update_layout(
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        font=dict(color="#1b5e20"),
+                    )
+                    st.plotly_chart(fig_imp, use_container_width=True)
+
+                with c2:
+                    st.markdown("##### 📐 Linear Regression")
+                    lr_model, lr_metrics = train_linear_regression(X, y)
+                    st.metric("MAE", f"{lr_metrics['mae']:,.2f}")
+                    st.metric("RMSE", f"{lr_metrics['rmse']:,.2f}")
+                    st.metric("R² Score", f"{lr_metrics['r2']:.4f}")
+
+                    # Actual vs Predicted
+                    y_pred_lr = lr_model.predict(X)
+                    fig_pred = px.scatter(
+                        x=y,
+                        y=y_pred_lr,
+                        labels={"x": "Actual", "y": "Predicted"},
+                        title="📊 Actual vs Predicted (LR)",
+                        color_discrete_sequence=["#2e7d32"],
+                    )
+                    fig_pred.add_trace(
+                        go.Scatter(
+                            x=[y.min(), y.max()],
+                            y=[y.min(), y.max()],
+                            mode="lines",
+                            line=dict(color="red", dash="dash"),
+                            name="Perfect Prediction",
+                        )
+                    )
+                    fig_pred.update_layout(
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        font=dict(color="#1b5e20"),
+                    )
+                    st.plotly_chart(fig_pred, use_container_width=True)
+
+                # Perbandingan model
+                st.markdown("##### 📊 Perbandingan Performa Model")
+                comparison = pd.DataFrame(
+                    {
+                        "Model": ["Random Forest", "Linear Regression"],
+                        "MAE": [rf_metrics["mae"], lr_metrics["mae"]],
+                        "RMSE": [rf_metrics["rmse"], lr_metrics["rmse"]],
+                        "R²": [rf_metrics["r2"], lr_metrics["r2"]],
+                    }
+                )
+                st.dataframe(comparison, use_container_width=True)
+            else:
+                st.warning("Fitur numerik tidak cukup untuk training model.")
+        else:
+            st.warning("Data tidak cukup untuk training model ML.")
+    except Exception as e:
+        st.error(f"❌ Error saat training model: {e}")
+
+# ---------- TAB 6: INSIGHT ----------
+with tab6:
+    st.markdown('<div class="section-title">💡 Insight Otomatis dari Data</div>', unsafe_allow_html=True)
+
+    try:
+        top_commodity = (
+            df_filtered.groupby(col_commodity)[col_production]
+            .sum()
+            .sort_values(ascending=False)
+            .index[0]
+        )
+        top_province = (
+            df_filtered.groupby(col_province)[col_production]
+            .sum()
+            .sort_values(ascending=False)
+            .index[0]
+        )
+        max_prod = df_filtered[col_production].max()
+        min_prod = df_filtered[col_production].min()
+
+        st.markdown(
+            f"""
+            <div class="insight-box">
+                🌾 <b>Komoditas Unggulan:</b> <b>{top_commodity}</b> merupakan komoditas dengan total produksi tertinggi.
+            </div>
+            <div class="insight-box">
+                📍 <b>Provinsi Terproduktif:</b> <b>{top_province}</b> menjadi penyumbang produksi terbesar.
+            </div>
+            <div class="insight-box">
+                📊 <b>Rentang Produksi:</b> Produksi berkisar antara <b>{format_number(min_prod)}</b> hingga <b>{format_number(max_prod)}</b> ton.
+            </div>
+            <div class="insight-box">
+                📈 <b>Total Data:</b> Dataset berisi <b>{len(df_filtered):,}</b> observasi dari <b>{total_provinces}</b> provinsi dan <b>{total_commodities}</b> komoditas.
+            </div>
+            <div class="insight-box">
+                💡 <b>Rekomendasi:</b> Pemerintah dapat fokus mengembangkan komoditas <b>{top_commodity}</b> di provinsi <b>{top_province}</b> untuk meningkatkan produktivitas nasional.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    except Exception as e:
+        st.warning(f"Gagal menghasilkan insight: {e}")
+
+# ============================================================
+# 9. DOWNLOAD DATA
+# ============================================================
+st.markdown("---")
+st.markdown('<div class="section-title">📥 Download Hasil Analisis</div>', unsafe_allow_html=True)
+
+col_d1, col_d2, col_d3 = st.columns(3)
+
+with col_d1:
+    csv = df_filtered.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="📊 Download Data Filter (CSV)",
+        data=csv,
+        file_name="data_perkebunan_filtered.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+
+with col_d2:
+    excel_buffer = io.BytesIO()
+    with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
+        df_filtered.to_excel(writer, sheet_name="Data", index=False)
+    st.download_button(
+        label="📑 Download Data (Excel)",
+        data=excel_buffer.getvalue(),
+        file_name="data_perkebunan_filtered.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+    )
+
+with col_d3:
+    summary = get_summary_stats(df_filtered, col_production)
+    summary_csv = summary.to_csv(index=True).encode("utf-8")
+    st.download_button(
+        label="📈 Download Ringkasan Statistik",
+        data=summary_csv,
+        file_name="ringkasan_statistik.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+
+# ============================================================
+# 10. FOOTER
+# ============================================================
+st.markdown(
+    """
+    <div class="footer">
+        <p>🌿 <b>Dashboard Produksi Tanaman Perkebunan Indonesia</b> — UAS Data Science 2026</p>
+        <p>Dibuat dengan ❤️ menggunakan Streamlit, Plotly, dan Scikit-Learn</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
